@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Christmas Story</title>
+  <style>
+    body {
+      background-image: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAUAAAAFCAYAAACNbyblAAAAHElEQVQI12P4//8/w38GIAXDIBKE0DHxgljNBAAO9TXL0Y4OHwAAAABJRU5ErkJggg==');
+      background-size: cover;
+      background-position: center;
+      color: #003366;
+      font-family: 'Comic Sans MS', cursive, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      overflow: hidden;
+    }
+    .story {
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 15px;
+      box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+      padding: 20px;
+      max-width: 600px;
+      text-align: center;
+      font-size: 1.5rem;
+    }
+    .emoji {
+      font-size: 2rem;
+    }
+    .play-button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      font-size: 1rem;
+      background-color: #0056b3;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="story">
+    <span id="text"></span>
+    <span class="emoji">🎄✨🎅</span>
+    <button id="playButton" class="play-button">Start Story</button>
+  </div>
+
+  <audio id="narration" style="display: none;">
+    <source src="https://www.dropbox.com/scl/fi/mw4yysymged1srhn4o979/christmas_story.mp3?rlkey=53re04axy94om89no2jepz99h&e=1&st=g70ayrmb&dl=1" type="audio/mpeg">
+    Your browser does not support the audio element.
+  </audio>
+
+  <script>
+    const story = [
+      "Once upon a snowy Christmas Eve, 🎅 Santa was preparing for his magical journey.",
+      "The elves were busy packing gifts 🎁, and the reindeer 🦌 were practicing their flying skills.",
+      "In a cozy little town, children were dreaming of candy canes 🍭 and surprises under the tree 🎄.",
+      "As the clock struck midnight, Santa soared through the sky, sprinkling joy and starlight ✨.",
+      "When morning came, the world sparkled with happiness and love ❤️."
+    ];
+
+    const textElement = document.getElementById('text');
+    const audio = document.getElementById('narration');
+    const playButton = document.getElementById('playButton');
+    let index = 0;
+
+    playButton.addEventListener('click', () => {
+      audio.style.display = 'block';
+      audio.play();
+      playButton.style.display = 'none'; // Hide the play button after starting the story
+      typeStory();
+    });
+
+    function typeStory() {
+      if (index < story.length) {
+        let i = 0;
+        const interval = setInterval(() => {
+          textElement.innerHTML += story[index][i];
+          i++;
+          if (i === story[index].length) {
+            clearInterval(interval);
+            index++;
+            textElement.innerHTML += '<br><br>';
+            setTimeout(typeStory, 1000);
+          }
+        }, 70);
+      } else {
+        textElement.innerHTML += "<br><span class='emoji'>🎁🌟 Merry Christmas! 🌟🎁</span>";
+      }
+    }
+  </script>
+</body>
+</html>
