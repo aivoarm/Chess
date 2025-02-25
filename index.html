@@ -713,7 +713,23 @@
             let bestValue = -Infinity;
             const deadline = Date.now() + 1000;
     
-            for (const move of moves) {
+            // If in check, filter moves to only those that resolve the check
+            let validMoves = moves;
+            if (inCheck) {
+                validMoves = moves.filter(m => {
+                    const tempBoard = JSON.parse(JSON.stringify(board));
+                    makeMove(m, true);
+                    const stillInCheck = isKingInCheck('black', tempBoard);
+                    undoMove();
+                    return !stillInCheck;
+                });
+                if (validMoves.length === 0) {
+                    console.warn("No legal moves to resolve check for Black");
+                    return null;
+                }
+            }
+    
+            for (const move of validMoves) {
                 makeMove(move, true);
                 const value = minimax(depth - 1, -Infinity, Infinity, false, 0, deadline);
                 undoMove();
@@ -747,7 +763,19 @@
     
             if (!moveObj || !isValidMove(moveObj.fromRow, moveObj.fromCol, moveObj.toRow, moveObj.toCol)) {
                 console.log("Local AI failed, picking random move");
-                moveObj = getRandomMove(getAllMoves('black'));
+                const allMoves = getAllMoves('black');
+                // If in check, filter moves to only those that resolve the check
+                if (inCheck) {
+                    moveObj = getRandomMove(allMoves.filter(m => {
+                        const tempBoard = JSON.parse(JSON.stringify(board));
+                        makeMove(m, true);
+                        const stillInCheck = isKingInCheck('black', tempBoard);
+                        undoMove();
+                        return !stillInCheck;
+                    }));
+                } else {
+                    moveObj = getRandomMove(allMoves);
+                }
             }
     
             if (moveObj && isValidMove(moveObj.fromRow, moveObj.fromCol, moveObj.toRow, moveObj.toCol)) {
