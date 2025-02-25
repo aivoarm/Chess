@@ -799,8 +799,85 @@
                 return minEval;
             }
         }
+        async function getBestMoveFromStockfish(fen) {
+    try {
+        const response = await fetch(`https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}`);
+        const data = await response.json();
 
-        function aiMove() {
+        if (data.pvs && data.pvs.length > 0) {
+            return data.pvs[0].moves.split(" ")[0]; // Get the best move in UCI notation
+        }
+    } catch (error) {
+        console.error("Error fetching Stockfish move:", error);
+    }
+    return null;
+}
+
+function getFEN() {
+    let fen = "";
+    for (let row = 0; row < 8; row++) {
+        let empty = 0;
+        for (let col = 0; col < 8; col++) {
+            const piece = board[row][col];
+            if (piece === "") {
+                empty++;
+            } else {
+                if (empty > 0) {
+                    fen += empty;
+                    empty = 0;
+                }
+                fen += piece === piece.toUpperCase() ? piece : piece.toLowerCase();
+            }
+        }
+        if (empty > 0) fen += empty;
+        if (row < 7) fen += "/";
+    }
+
+    // Append turn info
+    fen += ` ${currentTurn === 'white' ? 'w' : 'b'} `;
+
+    // Castling rights
+    let castling = "";
+    if (castlingRights.whiteKingSide) castling += "K";
+    if (castlingRights.whiteQueenSide) castling += "Q";
+    if (castlingRights.blackKingSide) castling += "k";
+    if (castlingRights.blackQueenSide) castling += "q";
+    fen += castling || "-";
+
+    // Placeholder for en passant, half-move clock, and full-move number
+    fen += " - 0 1";
+
+    return fen;
+}
+
+function uciToMove(uci) {
+    const fromCol = uci.charCodeAt(0) - 97; // 'a' -> 0
+    const fromRow = 8 - parseInt(uci[1]); // '8' -> 0
+    const toCol = uci.charCodeAt(2) - 97;
+    const toRow = 8 - parseInt(uci[3]);
+
+    return { fromRow, fromCol, toRow, toCol };
+}
+
+async function aiMove() {
+    if (gameOver || currentTurn !== 'black') return;
+    aiThinking = true;
+
+    const fen = getFEN(); // Convert board to FEN notation
+    const bestMoveUCI = await getBestMoveFromStockfish(fen);
+
+    if (bestMoveUCI) {
+        const bestMove = uciToMove(bestMoveUCI); // Convert UCI move to your format
+        makeMove(bestMove);
+        update();
+        turnInfo.textContent = 'Turn: White (You)';
+        checkGameState();
+    }
+
+    aiThinking = false;
+}
+
+        function OLD_aiMove() {
             if (gameOver || currentTurn !== 'black') return;
             aiThinking = true;
             
@@ -1103,4 +1180,4 @@
         update();
     </script>
 </body>
-</html>
+</html>s
