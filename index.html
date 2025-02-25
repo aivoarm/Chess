@@ -270,7 +270,6 @@
         let board = JSON.parse(JSON.stringify(initialBoard));
         const pieceColors = { 'white': '#fff', 'black': '#000' };
 
-        // History and killer moves for AI optimization
         const historyTable = Array(8).fill().map(() => Array(8).fill().map(() => 
             Array(8).fill().map(() => Array(8).fill(0))));
         const killerMoves = Array(10).fill().map(() => ({ move: null, score: 0 }));
@@ -558,8 +557,12 @@
             score += currentTurn === 'black' ? 10 : -10;
             const materialDiff = blackMaterial - whiteMaterial;
             score += materialDiff * 0.1;
-            if (isKingInCheck('black')) score -= 1000;
-            if (isKingInCheck('white')) score += 1000;
+            
+            // Stronger king safety and checkmate threat detection
+            if (isKingInCheck('black')) score -= 2000;
+            if (isKingInCheck('white')) score += 2000;
+            score -= evaluateKingExposure('black') * 100;
+            score += evaluateKingExposure('white') * 100;
 
             return score;
         }
@@ -620,19 +623,34 @@
                 for (let row = 0; row < 8; row++) {
                     if (board[row][col] === (color === 'white' ? 'P' : 'p')) pawnCount++;
                 }
-                if (pawnCount === 0) score -= 20;
+                if (pawnCount === 0) score -= 30;
             }
 
             for (let r = Math.max(0, kingPos.row - 2); r <= Math.min(7, kingPos.row + 2); r++) {
                 for (let c = Math.max(0, kingPos.col - 2); c <= Math.min(7, kingPos.col + 2); c++) {
                     const piece = board[r][c];
                     if (piece && (piece === piece.toUpperCase() ? 'white' : 'black') === enemyColor) {
-                        score -= pieceBaseValues[piece] * 0.05;
+                        score -= pieceBaseValues[piece] * 0.1; // Increased penalty for nearby threats
                     }
                 }
             }
 
             return score;
+        }
+
+        function evaluateKingExposure(color) {
+            const kingPos = findKing(color);
+            if (!kingPos) return 0;
+            let exposure = 0;
+            
+            // Check key defensive squares (like f7 for Black)
+            const criticalSquares = color === 'black' ? [[1,5], [1,6]] : [[6,5], [6,6]];
+            for (const [row, col] of criticalSquares) {
+                if (isSquareAttacked(row, col, color)) {
+                    exposure += 1; // Penalty for each attacked square near king
+                }
+            }
+            return exposure;
         }
 
         function evaluatePawnShield(kingPos, color) {
@@ -641,7 +659,7 @@
             const row = kingPos.row + direction;
             if (row >= 0 && row < 8) {
                 for (let col = Math.max(0, kingPos.col - 1); col <= Math.min(7, kingPos.col + 1); col++) {
-                    if (board[row][col] === (color === 'white' ? 'P' : 'p')) shieldBonus += 20;
+                    if (board[row][col] === (color === 'white' ? 'P' : 'p')) shieldBonus += 30; // Increased bonus
                 }
             }
             return shieldBonus;
@@ -671,7 +689,7 @@
             
             for (let col = 0; col < 8; col++) {
                 for (const piece of pieces) {
-                    if (board[backRank][col] === piece) score -= 15;
+                    if (board[backRank][col] === piece) score -= 20; // Increased penalty
                 }
             }
             return score;
@@ -693,7 +711,9 @@
             const captured = board[move.toRow][move.toCol];
             if (captured) score += pieceBaseValues[captured] - pieceBaseValues[piece] * 0.1;
             if (piece.toLowerCase() === 'p' && (move.toRow === 0 || move.toRow === 7)) score += 800;
-            if (isSquareAttacked(move.toRow, move.toCol, currentTurn === 'white' ? 'black' : 'white')) score += 50;
+            if (isSquareAttacked(move.toRow, move.toCol, currentTurn === 'white' ? 'black' : 'white')) score += 100; // Increased check bonus
+            // Bonus for defending f7/f2
+            if (move.toRow === (piece === piece.toUpperCase() ? 6 : 1) && move.toCol === 5) score += 50;
             return score;
         }
 
@@ -710,7 +730,8 @@
             if (standPat >= beta) return beta;
             let newAlpha = Math.max(alpha, standPat);
 
-            const moves = getAllMoves(color).filter(move => board[move.toRow][move.toCol]);
+            const moves = getAllMoves(color).filter(move => board[move.toRow][move.toCol] || 
+                (move.toRow === (color === 'white' ? 1 : 6) && move.toCol === 5)); // Include f7/f2 attacks
             const orderedMoves = orderMoves(moves);
 
             for (const move of orderedMoves) {
@@ -783,7 +804,7 @@
             if (gameOver || currentTurn !== 'black') return;
             aiThinking = true;
             
-            const maxDepth = parseInt(difficultySelect.value);
+            const maxDepth = parseInt(difficultySelect.value) + 1; // Increased base depth
             const moves = orderMoves(getAllMoves('black'));
             if (moves.length === 0) {
                 endGame(isKingInCheck('black') ? 'White wins by checkmate!' : 'Stalemate!');
@@ -791,26 +812,31 @@
                 return;
             }
 
+            // Expanded opening book with better responses
             const openingMoves = {
-                'e4': { fromRow: 1, fromCol: 4, toRow: 3, toCol: 4 },
-                'd4': { fromRow: 1, fromCol: 3, toRow: 3, toCol: 3 },
-                'Nf3': { fromRow: 0, fromCol: 6, toRow: 2, toCol: 5 }
+                '': { fromRow: 1, fromCol: 4, toRow: 3, toCol: 4 }, // e5 as default
+                'e4': { fromRow: 1, fromCol: 4, toRow: 3, toCol: 4 }, // e5
+                'd4': { fromRow: 1, fromCol: 3, toRow: 3, toCol: 3 }, // d5
+                'Nf3': { fromRow: 0, fromCol: 6, toRow: 2, toCol: 5 }, // Nf6
+                'c4': { fromRow: 1, fromCol: 4, toRow: 3, toCol: 4 }, // e5
+                'e4 c6': { fromRow: 1, fromCol: 3, toRow: 3, toCol: 3 }, // d5 after e4 c6
+                'e4 e5': { fromRow: 0, fromCol: 6, toRow: 2, toCol: 5 } // Nf6 after e4 e5
             };
             
             let bestMove = null;
-            if (moveHistory.length < 3 && moveHistory.length > 0) {
-                const lastMove = moveHistory[moveHistory.length - 1];
-                if (openingMoves[lastMove]) {
-                    bestMove = moves.find(m => m.fromRow === openingMoves[lastMove].fromRow &&
-                        m.fromCol === openingMoves[lastMove].fromCol &&
-                        m.toRow === openingMoves[lastMove].toRow &&
-                        m.toCol === openingMoves[lastMove].toCol);
+            if (moveHistory.length < 4) {
+                const key = moveHistory.join(' ').trim();
+                if (openingMoves[key]) {
+                    bestMove = moves.find(m => m.fromRow === openingMoves[key].fromRow &&
+                        m.fromCol === openingMoves[key].fromCol &&
+                        m.toRow === openingMoves[key].toRow &&
+                        m.toCol === openingMoves[key].toCol);
                 }
             }
 
             if (!bestMove) {
                 let bestValue = -Infinity;
-                const timeLimit = 2000;
+                const timeLimit = 3000; // Increased to 3 seconds
                 const startTime = Date.now();
                 
                 for (let depth = 1; depth <= maxDepth && (Date.now() - startTime) < timeLimit; depth++) {
@@ -818,6 +844,14 @@
                         makeMove(move, true);
                         const value = minimax(depth - 1, -Infinity, Infinity, false);
                         undoMove();
+                        
+                        // Emergency check: avoid moves that allow immediate checkmate
+                        const tempBoard = JSON.parse(JSON.stringify(board));
+                        tempBoard[move.toRow][move.toCol] = board[move.fromRow][move.fromCol];
+                        tempBoard[move.fromRow][move.fromCol] = '';
+                        if (isKingInCheck('black', tempBoard) && getAllMoves('black').length === 0) {
+                            continue; // Skip moves leading to checkmate
+                        }
                         
                         if (value > bestValue) {
                             bestValue = value;
