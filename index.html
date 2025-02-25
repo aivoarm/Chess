@@ -270,6 +270,11 @@
         let board = JSON.parse(JSON.stringify(initialBoard));
         const pieceColors = { 'white': '#fff', 'black': '#000' };
 
+        // History and killer moves for AI optimization
+        const historyTable = Array(8).fill().map(() => Array(8).fill().map(() => 
+            Array(8).fill().map(() => Array(8).fill(0))));
+        const killerMoves = Array(10).fill().map(() => ({ move: null, score: 0 }));
+
         function drawBoard() {
             for (let row = 0; row < 8; row++) {
                 for (let col = 0; col < 8; col++) {
@@ -368,7 +373,7 @@
 
             const target = board[toRow][toCol];
             if (target && (target === target.toUpperCase()) === (piece === piece.toUpperCase())) return false;
-            if (target && target.toLowerCase() === 'k') return false; // Prevent capturing the king
+            if (target && target.toLowerCase() === 'k') return false;
 
             const dx = toCol - fromCol;
             const dy = toRow - fromRow;
@@ -402,7 +407,7 @@
                 tempBoard[fromRow][fromCol] = '';
                 if (isKingInCheck(currentTurn, tempBoard)) return false;
                 const opponentColor = currentTurn === 'white' ? 'black' : 'white';
-                if (!findKing(opponentColor, tempBoard)) return false; // Prevent moves that capture opponent's king
+                if (!findKing(opponentColor, tempBoard)) return false;
             }
             return isValid;
         }
@@ -501,38 +506,334 @@
         function evaluateBoard() {
             let score = 0;
             let pieceCount = 0;
+            let whiteMaterial = 0;
+            let blackMaterial = 0;
             const kingPos = findKing('black');
             const whiteKingPos = findKing('white');
+            const gamePhase = pieceCount > 16 ? 'middle' : 'endgame';
 
             for (let row = 0; row < 8; row++) {
                 for (let col = 0; col < 8; col++) {
                     const piece = board[row][col];
                     if (piece) {
                         pieceCount++;
-                        const baseValue = pieceBaseValues[piece];
                         const isWhite = piece === piece.toUpperCase();
+                        const baseValue = pieceBaseValues[piece];
                         const evalRow = isWhite ? row : 7 - row;
+                        
                         const tableValue = piece.toLowerCase() === 'p' ? pawnTable[evalRow][col] :
-                                          piece.toLowerCase() === 'n' ? knightTable[evalRow][col] :
-                                          piece.toLowerCase() === 'b' ? bishopTable[evalRow][col] :
-                                          piece.toLowerCase() === 'r' ? rookTable[evalRow][col] :
-                                          piece.toLowerCase() === 'q' ? queenTable[evalRow][col] :
-                                          piece.toLowerCase() === 'k' ? (pieceCount < 16 ? kingEndgameTable[evalRow][col] : kingMiddleTable[evalRow][col]) : 0;
-                        score += (isWhite ? 1 : -1) * (baseValue + tableValue);
+                            piece.toLowerCase() === 'n' ? knightTable[evalRow][col] :
+                            piece.toLowerCase() === 'b' ? bishopTable[evalRow][col] :
+                            piece.toLowerCase() === 'r' ? rookTable[evalRow][col] :
+                            piece.toLowerCase() === 'q' ? queenTable[evalRow][col] :
+                            piece.toLowerCase() === 'k' ? (gamePhase === 'endgame' ? 
+                                kingEndgameTable[evalRow][col] : kingMiddleTable[evalRow][col]) : 0;
 
-                        // King safety penalty
-                        if (piece.toLowerCase() === 'k' && !isWhite) {
-                            const distanceToWhitePieces = whiteKingPos ? Math.max(Math.abs(row - whiteKingPos.row), Math.abs(col - whiteKingPos.col)) : 8;
-                            score -= (8 - distanceToWhitePieces) * 50; // Penalty for proximity to White pieces
-                            if (isSquareAttacked(row, col, 'black')) score -= 1000; // Large penalty if in check
+                        let pieceScore = baseValue + tableValue;
+                        
+                        if (piece.toLowerCase() === 'b') {
+                            pieceScore += evaluateBishopPair(isWhite) * 50;
+                        }
+                        if (piece.toLowerCase() === 'r') {
+                            pieceScore += (row === (isWhite ? 1 : 6) ? 25 : 0);
+                        }
+                        if (piece.toLowerCase() === 'p') {
+                            pieceScore += evaluatePawnStructure(row, col, isWhite);
+                        }
+
+                        score += (isWhite ? 1 : -1) * pieceScore;
+                        if (isWhite) whiteMaterial += baseValue; else blackMaterial += baseValue;
+
+                        if (piece.toLowerCase() === 'k') {
+                            const safetyScore = evaluateKingSafety(isWhite ? whiteKingPos : kingPos, isWhite ? 'white' : 'black');
+                            score += (isWhite ? 1 : -1) * safetyScore;
                         }
                     }
                 }
             }
 
-            // Additional check penalty
-            if (isKingInCheck('black')) score -= 500; // Force AI to prioritize escaping check
+            score += evaluateMobility('black') - evaluateMobility('white');
+            score += evaluateCenterControl('black') - evaluateCenterControl('white');
+            score += evaluateDevelopment('black') - evaluateDevelopment('white');
+            score += currentTurn === 'black' ? 10 : -10;
+            const materialDiff = blackMaterial - whiteMaterial;
+            score += materialDiff * 0.1;
+            if (isKingInCheck('black')) score -= 1000;
+            if (isKingInCheck('white')) score += 1000;
+
             return score;
+        }
+
+        function evaluateBishopPair(isWhite) {
+            let bishopCount = 0;
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    if (board[row][col] === (isWhite ? 'B' : 'b')) bishopCount++;
+                }
+            }
+            return bishopCount === 2 ? 1 : 0;
+        }
+
+        function evaluatePawnStructure(row, col, isWhite) {
+            let score = 0;
+            const pawn = isWhite ? 'P' : 'p';
+            
+            for (let r = 0; r < 8; r++) {
+                if (r !== row && board[r][col] === pawn) score -= 20;
+            }
+            
+            let isolated = true;
+            for (let c = Math.max(0, col - 1); c <= Math.min(7, col + 1); c++) {
+                if (c !== col) {
+                    for (let r = 0; r < 8; r++) {
+                        if (board[r][c] === pawn) {
+                            isolated = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (isolated) score -= 25;
+
+            if (isPassedPawn(row, col, isWhite)) score += 50 + (isWhite ? row : 7 - row) * 10;
+
+            return score;
+        }
+
+        function isPassedPawn(row, col, isWhite) {
+            const direction = isWhite ? -1 : 1;
+            const enemyPawn = isWhite ? 'p' : 'P';
+            for (let r = row + direction; r >= 0 && r < 8; r += direction) {
+                for (let c = Math.max(0, col - 1); c <= Math.min(7, col + 1); c++) {
+                    if (board[r][c] === enemyPawn) return false;
+                }
+            }
+            return true;
+        }
+
+        function evaluateKingSafety(kingPos, color) {
+            let score = evaluatePawnShield(kingPos, color);
+            const enemyColor = color === 'white' ? 'black' : 'white';
+            
+            for (let col = Math.max(0, kingPos.col - 1); col <= Math.min(7, kingPos.col + 1); col++) {
+                let pawnCount = 0;
+                for (let row = 0; row < 8; row++) {
+                    if (board[row][col] === (color === 'white' ? 'P' : 'p')) pawnCount++;
+                }
+                if (pawnCount === 0) score -= 20;
+            }
+
+            for (let r = Math.max(0, kingPos.row - 2); r <= Math.min(7, kingPos.row + 2); r++) {
+                for (let c = Math.max(0, kingPos.col - 2); c <= Math.min(7, kingPos.col + 2); c++) {
+                    const piece = board[r][c];
+                    if (piece && (piece === piece.toUpperCase() ? 'white' : 'black') === enemyColor) {
+                        score -= pieceBaseValues[piece] * 0.05;
+                    }
+                }
+            }
+
+            return score;
+        }
+
+        function evaluatePawnShield(kingPos, color) {
+            let shieldBonus = 0;
+            const direction = color === 'white' ? -1 : 1;
+            const row = kingPos.row + direction;
+            if (row >= 0 && row < 8) {
+                for (let col = Math.max(0, kingPos.col - 1); col <= Math.min(7, kingPos.col + 1); col++) {
+                    if (board[row][col] === (color === 'white' ? 'P' : 'p')) shieldBonus += 20;
+                }
+            }
+            return shieldBonus;
+        }
+
+        function evaluateMobility(color) {
+            return getAllMoves(color).length * 5;
+        }
+
+        function evaluateCenterControl(color) {
+            let score = 0;
+            const centerSquares = [[3, 3], [3, 4], [4, 3], [4, 4]];
+            centerSquares.forEach(([row, col]) => {
+                const piece = board[row][col];
+                if (piece && (piece === piece.toUpperCase() ? 'white' : 'black') === color) {
+                    score += piece.toLowerCase() === 'p' ? 10 : 20;
+                }
+            });
+            return score;
+        }
+
+        function evaluateDevelopment(color) {
+            let score = 0;
+            const isWhite = color === 'white';
+            const pieces = isWhite ? ['N', 'B', 'Q'] : ['n', 'b', 'q'];
+            const backRank = isWhite ? 7 : 0;
+            
+            for (let col = 0; col < 8; col++) {
+                for (const piece of pieces) {
+                    if (board[backRank][col] === piece) score -= 15;
+                }
+            }
+            return score;
+        }
+
+        function orderMoves(moves) {
+            return moves.sort((a, b) => {
+                let aScore = scoreMove(a);
+                let bScore = scoreMove(b);
+                aScore += getHistoryScore(a);
+                bScore += getHistoryScore(b);
+                return bScore - aScore;
+            });
+        }
+
+        function scoreMove(move) {
+            let score = 0;
+            const piece = board[move.fromRow][move.fromCol];
+            const captured = board[move.toRow][move.toCol];
+            if (captured) score += pieceBaseValues[captured] - pieceBaseValues[piece] * 0.1;
+            if (piece.toLowerCase() === 'p' && (move.toRow === 0 || move.toRow === 7)) score += 800;
+            if (isSquareAttacked(move.toRow, move.toCol, currentTurn === 'white' ? 'black' : 'white')) score += 50;
+            return score;
+        }
+
+        function getHistoryScore(move) {
+            return historyTable[move.fromRow][move.fromCol][move.toRow][move.toCol];
+        }
+
+        function updateHistory(move, depth) {
+            historyTable[move.fromRow][move.fromCol][move.toRow][move.toCol] += depth * depth;
+        }
+
+        function quiescence(alpha, beta, color) {
+            const standPat = evaluateBoard();
+            if (standPat >= beta) return beta;
+            let newAlpha = Math.max(alpha, standPat);
+
+            const moves = getAllMoves(color).filter(move => board[move.toRow][move.toCol]);
+            const orderedMoves = orderMoves(moves);
+
+            for (const move of orderedMoves) {
+                makeMove(move, true);
+                const score = -quiescence(-beta, -newAlpha, color === 'white' ? 'black' : 'white');
+                undoMove();
+                if (score >= beta) return beta;
+                newAlpha = Math.max(newAlpha, score);
+            }
+            return newAlpha;
+        }
+
+        function minimax(depth, alpha, beta, maximizingPlayer, ply = 0) {
+            if (depth === 0) return quiescence(alpha, beta, maximizingPlayer ? 'black' : 'white');
+
+            const moves = orderMoves(getAllMoves(maximizingPlayer ? 'black' : 'white'));
+            if (moves.length === 0) return isKingInCheck(maximizingPlayer ? 'black' : 'white') ? 
+                (maximizingPlayer ? -1000000 - depth : 1000000 + depth) : 0;
+
+            if (depth > 3 && !inCheck && ply > 0) {
+                currentTurn = maximizingPlayer ? 'white' : 'black';
+                const nullScore = -minimax(depth - 3, -beta, -beta + 1, !maximizingPlayer, ply + 1);
+                currentTurn = maximizingPlayer ? 'black' : 'white';
+                if (nullScore >= beta) return beta;
+            }
+
+            let bestMove = null;
+            if (maximizingPlayer) {
+                let maxEval = -Infinity;
+                for (const move of moves) {
+                    makeMove(move, true);
+                    const eval = minimax(depth - 1, alpha, beta, false, ply + 1);
+                    undoMove();
+                    
+                    if (eval > maxEval) {
+                        maxEval = eval;
+                        bestMove = move;
+                    }
+                    alpha = Math.max(alpha, eval);
+                    if (beta <= alpha) break;
+                }
+                if (bestMove && depth > 2) {
+                    updateHistory(bestMove, depth);
+                    killerMoves[ply] = { move: bestMove, score: maxEval };
+                }
+                return maxEval;
+            } else {
+                let minEval = Infinity;
+                for (const move of moves) {
+                    makeMove(move, true);
+                    const eval = minimax(depth - 1, alpha, beta, true, ply + 1);
+                    undoMove();
+                    
+                    if (eval < minEval) {
+                        minEval = eval;
+                        bestMove = move;
+                    }
+                    beta = Math.min(beta, eval);
+                    if (beta <= alpha) break;
+                }
+                if (bestMove && depth > 2) {
+                    updateHistory(bestMove, depth);
+                    killerMoves[ply] = { move: bestMove, score: minEval };
+                }
+                return minEval;
+            }
+        }
+
+        function aiMove() {
+            if (gameOver || currentTurn !== 'black') return;
+            aiThinking = true;
+            
+            const maxDepth = parseInt(difficultySelect.value);
+            const moves = orderMoves(getAllMoves('black'));
+            if (moves.length === 0) {
+                endGame(isKingInCheck('black') ? 'White wins by checkmate!' : 'Stalemate!');
+                aiThinking = false;
+                return;
+            }
+
+            const openingMoves = {
+                'e4': { fromRow: 1, fromCol: 4, toRow: 3, toCol: 4 },
+                'd4': { fromRow: 1, fromCol: 3, toRow: 3, toCol: 3 },
+                'Nf3': { fromRow: 0, fromCol: 6, toRow: 2, toCol: 5 }
+            };
+            
+            let bestMove = null;
+            if (moveHistory.length < 3 && moveHistory.length > 0) {
+                const lastMove = moveHistory[moveHistory.length - 1];
+                if (openingMoves[lastMove]) {
+                    bestMove = moves.find(m => m.fromRow === openingMoves[lastMove].fromRow &&
+                        m.fromCol === openingMoves[lastMove].fromCol &&
+                        m.toRow === openingMoves[lastMove].toRow &&
+                        m.toCol === openingMoves[lastMove].toCol);
+                }
+            }
+
+            if (!bestMove) {
+                let bestValue = -Infinity;
+                const timeLimit = 2000;
+                const startTime = Date.now();
+                
+                for (let depth = 1; depth <= maxDepth && (Date.now() - startTime) < timeLimit; depth++) {
+                    for (const move of moves) {
+                        makeMove(move, true);
+                        const value = minimax(depth - 1, -Infinity, Infinity, false);
+                        undoMove();
+                        
+                        if (value > bestValue) {
+                            bestValue = value;
+                            bestMove = move;
+                        }
+                    }
+                }
+            }
+
+            if (bestMove) {
+                makeMove(bestMove);
+                update();
+                turnInfo.textContent = 'Turn: White (You)';
+                checkGameState();
+            }
+            aiThinking = false;
         }
 
         function makeMove(move, isAI = false) {
@@ -616,85 +917,6 @@
             }
             if (inCheck) notation += isCheckmate() ? '#' : '+';
             return notation;
-        }
-
-        function minimax(depth, alpha, beta, maximizingPlayer) {
-            if (depth === 0 || isCheckmate() || isStalemate()) return evaluateBoard();
-            const moves = getAllMoves(maximizingPlayer ? 'black' : 'white');
-            if (moves.length === 0) return maximizingPlayer ? -Infinity : Infinity;
-
-            moves.sort((a, b) => {
-                const aValue = board[a.toRow][a.toCol] ? pieceBaseValues[board[a.toRow][a.toCol]] : 0;
-                const bValue = board[b.toRow][b.toCol] ? pieceBaseValues[board[b.toRow][b.toCol]] : 0;
-                return bValue - aValue;
-            });
-
-            if (maximizingPlayer) {
-                let maxEval = -Infinity;
-                for (const move of moves) {
-                    makeMove(move, true);
-                    const eval = minimax(depth - 1, alpha, beta, false);
-                    undoMove();
-                    maxEval = Math.max(maxEval, eval);
-                    alpha = Math.max(alpha, eval);
-                    if (beta <= alpha) break;
-                }
-                return maxEval;
-            } else {
-                let minEval = Infinity;
-                for (const move of moves) {
-                    makeMove(move, true);
-                    const eval = minimax(depth - 1, alpha, beta, true);
-                    undoMove();
-                    minEval = Math.min(minEval, eval);
-                    beta = Math.min(beta, eval);
-                    if (beta <= alpha) break;
-                }
-                return minEval;
-            }
-        }
-
-        function aiMove() {
-            if (gameOver || currentTurn !== 'black') return;
-            aiThinking = true;
-            const depth = parseInt(difficultySelect.value);
-            const moves = getAllMoves('black');
-            if (moves.length === 0) {
-                endGame(isKingInCheck('black') ? 'White wins by checkmate!' : 'Stalemate!');
-                return;
-            }
-
-            let bestMove = null;
-            let bestValue = -Infinity;
-            moves.sort((a, b) => {
-                const aValue = board[a.toRow][a.toCol] ? pieceBaseValues[board[a.toRow][a.toCol]] : 0;
-                const bValue = board[b.toRow][b.toCol] ? pieceBaseValues[board[b.toRow][b.toCol]] : 0;
-                return bValue - aValue;
-            });
-
-            for (const move of moves) {
-                makeMove(move, true);
-                if (!findKing('white')) {
-                    undoMove();
-                    continue;
-                }
-                const value = minimax(depth - 1, -Infinity, Infinity, false);
-                undoMove();
-                if (value > bestValue) {
-                    bestValue = value;
-                    bestMove = move;
-                }
-            }
-
-            if (bestMove) {
-                makeMove(bestMove);
-                update();
-                turnInfo.textContent = 'Turn: White (You)';
-                checkGameState();
-            } else if (inCheck) {
-                endGame('White wins by checkmate!');
-            }
-            aiThinking = false;
         }
 
         function undoMove() {
