@@ -75,7 +75,7 @@
         <button id="resetButton" class="gameButton">New Game</button>
         <button id="hintButton" class="gameButton">Hint</button>
         <button id="saveButton" class="gameButton">Save Game Locally</button>
-        <button id="reportButton" class="gameButton">Report Illegal Move</button> <!-- Button now always visible -->
+        <button id="reportButton" class="gameButton">Report Illegal Move</button> <!-- Always visible -->
     </div>
     
     <div id="gameOverModal">
@@ -951,7 +951,7 @@
             fullMoveNumber = 1;
             turnInfo.textContent = 'Turn: White (You)';
             gameOverModal.style.display = 'none';
-            reportButton.style.display = 'inline-block'; // Show report button on reset
+            reportButton.style.display = 'inline-block'; // Ensure report button is visible on reset
             update();
         }
     
