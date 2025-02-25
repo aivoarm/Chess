@@ -74,7 +74,8 @@
         <button id="undoButton" class="gameButton">Undo Move</button>
         <button id="resetButton" class="gameButton">New Game</button>
         <button id="hintButton" class="gameButton">Hint</button>
-        <button id="saveButton" class="gameButton">Save Game Locally</button> <!-- New Button -->
+        <button id="saveButton" class="gameButton">Save Game Locally</button>
+        <button id="reportButton" class="gameButton">Report Illegal Move</button> <!-- Button now always visible -->
     </div>
     
     <div id="gameOverModal">
@@ -91,6 +92,7 @@
         const undoButton = document.getElementById('undoButton');
         const hintButton = document.getElementById('hintButton');
         const saveButton = document.getElementById('saveButton');
+        const reportButton = document.getElementById('reportButton'); // Button Reference
         const difficultySelect = document.getElementById('difficultySelect');
         const capturedWhite = document.getElementById('capturedWhite');
         const capturedBlack = document.getElementById('capturedBlack');
@@ -764,7 +766,6 @@
             if (!moveObj || !isValidMove(moveObj.fromRow, moveObj.fromCol, moveObj.toRow, moveObj.toCol)) {
                 console.log("Local AI failed, picking random move");
                 const allMoves = getAllMoves('black');
-                // If in check, filter moves to only those that resolve the check
                 if (inCheck) {
                     moveObj = getRandomMove(allMoves.filter(m => {
                         const tempBoard = JSON.parse(JSON.stringify(board));
@@ -915,6 +916,7 @@
             gameResult.textContent = 'Game Over';
             gameOverMessage.textContent = message;
             gameOverModal.style.display = 'block';
+            reportButton.style.display = 'none'; // Hide report button when game is over
         }
     
         function update() {
@@ -949,6 +951,7 @@
             fullMoveNumber = 1;
             turnInfo.textContent = 'Turn: White (You)';
             gameOverModal.style.display = 'none';
+            reportButton.style.display = 'inline-block'; // Show report button on reset
             update();
         }
     
@@ -959,6 +962,7 @@
             update();
             turnInfo.textContent = `Turn: ${currentTurn === 'white' ? 'White (You)' : 'Black (AI)'}`;
             checkGameState();
+            reportButton.style.display = 'inline-block'; // Ensure report button remains visible after undo
         });
     
         hintButton.addEventListener('click', () => {
@@ -992,6 +996,41 @@
             console.log('Game saved locally as chess_game.html');
         });
     
+        // New function to report illegal moves to Google Sheets
+        async function reportIllegalMove() {
+            if (gameOver || aiThinking) return;
+
+            const reportData = {
+                moveHistory: moveHistory.join(', '),
+                currentBoard: board.map(row => row.join('')).join('/'),
+                currentTurn: currentTurn,
+                inCheck: inCheck,
+                lastMove: lastMove ? `${getMoveNotation(lastMove, board[lastMove.fromRow][lastMove.fromCol], board[lastMove.toRow][lastMove.toCol], false, null)}` : null
+            };
+
+            try {
+                const response = await fetch('https://script.google.com/macros/s/16vcxqftY3R6mzq5_RIcJZFiTuXB_pRuTifPjCThACQQkN48yM6XcCioH/exec', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams(reportData).toString()
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Failed to report: ${response.status}`);
+                }
+
+                const text = await response.text();
+                alert('Illegal move reported successfully! Check Google Sheets for details.');
+                console.log('Google Apps Script Response:', text);
+            } catch (error) {
+                alert('Failed to report illegal move. Please try again or contact support.');
+                console.error('Error reporting illegal move:', error);
+            }
+        }
+
+        // Add event listener for the report button
+        reportButton.addEventListener('click', reportIllegalMove);
+
         canvas.width = canvas.clientWidth;
         canvas.height = canvas.width;
         update();
